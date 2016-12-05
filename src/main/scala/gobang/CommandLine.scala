@@ -15,7 +15,7 @@ object CommandLine {
     val board = BoardMut.emptyBoard(13)
 
     val p1 = new CommandlinePlayer("Jiayi", playsBlack = true)
-    val p2 = new AIPlayer("AI", playsBlack = false, sampleNum = 2000, new Random())
+    val p2 = new AIPlayer("AI", playsBlack = false, sampleNum = 3000, new Random())
     val players = IndexedSeq[GobangPlayer](p1,p2)
 
     def playATurn(turn: Int): Unit = {

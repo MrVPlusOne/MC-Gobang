@@ -1,5 +1,7 @@
 package gobang
 
+import scala.collection.mutable
+
 
 sealed trait PosState
 
@@ -92,6 +94,10 @@ class BoardMut(val data: Array[PosState], val size: Int) {
       builder.append("\n")
     }
     builder.toString()
+  }
+
+  def leftMoves: mutable.Set[Int] = {
+    mutable.Set(data.indices.filter(i => data(i) == PosState.Empty):_*)
   }
 
   def duplicate = new BoardMut(data.clone(), size)
