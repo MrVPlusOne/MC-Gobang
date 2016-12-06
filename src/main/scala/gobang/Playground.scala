@@ -10,7 +10,8 @@ object Playground {
     val size = 15
 
     val b = BoardMut.emptyBoard(size)
-    val r = RandomPlay.randomPlay(b, Pos(size/2,size/2), currentIsBlack = true, new Random)
+    val r = RandomPlay.semiRandomPlay(b, Pos(size/2,size/2), currentIsBlack = true, maxTurn = 1000,
+      new Random(3),verbose = false)
     println(s"result: $r")
     println(b)
   }

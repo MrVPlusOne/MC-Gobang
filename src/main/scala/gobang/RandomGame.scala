@@ -11,10 +11,15 @@ case class GameWinner(winner: PosState)
 
 object RandomPlay {
 
-  def randomPlay(board: BoardMut, startPos: Pos, currentIsBlack: Boolean, random: Random): GameWinner = {
-    val leftMoves = board.leftMoves
+  /**
+    * Monte-Carlo game simulation: both sides play randomly.
+    * @return (Winner, Game end turn)
+    */
+  def randomPlay(board: BoardMut, startPos: Pos, currentIsBlack: Boolean, maxTurn: Int, random: Random):
+  (GameWinner, Int) = {
+    def leftMoves = board.interestRegion
 
-    def nextPosId(): Int = {
+    def nextPosId(): Int = { // todo: use better data structure
       val x = random.nextInt(leftMoves.size)
       var i = 0
       leftMoves.foreach(id => {
@@ -24,37 +29,105 @@ object RandomPlay {
       throw new Exception
     }
 
-    def playATurn(posId: Int, playerIsBlack: Boolean): GameWinner = {
-      leftMoves.remove (posId)
+    def playATurn(posId: Int, playerIsBlack: Boolean, turn: Int): (GameWinner, Int) = {
       board.placePiece(board.idToPos(posId), playerIsBlack) match {
         case GameWinner(Empty) =>
-          if(leftMoves.isEmpty)
-            GameWinner(Empty) // it's a draw
+          if(turn>= maxTurn || leftMoves.isEmpty)
+            (GameWinner(Empty), turn) // it's a draw
           else{
-            playATurn(nextPosId(), !playerIsBlack)
+            playATurn(nextPosId(), !playerIsBlack, turn+1)
           }
         case winner =>
-          winner
+          (winner, turn)
       }
     }
 
-    playATurn(board.posToId(startPos), currentIsBlack)
+    playATurn(board.posToId(startPos), currentIsBlack, 0)
   }
 
-  /**
-    * Assess the winning rate of two players using repeated randomPlay, will not modify board
-    * @return (blackWinRate, whiteWinRate)
-    */
-  def assessWinRates(board: BoardMut, pos: Pos, currentIsBlack: Boolean, sampleNum: Int, random: Random):
-  (Double, Double) = {
-    var blackWins, whiteWins = 0
-    (0 until sampleNum).foreach{ i =>
-      randomPlay(board.duplicate, pos, currentIsBlack, random).winner match {
-        case PosState.Black => blackWins += 1
-        case PosState.White => whiteWins += 1
-        case _ => // nothing
+  def semiRandomPlay(board: BoardMut, startPos: Pos, currentIsBlack: Boolean, maxTurn: Int, random: Random,
+                     verbose: Boolean = false):
+  (GameWinner, Int) = {
+
+    def nextPosId(nextIsBlack: Boolean): Int = {
+      val leftMoves = board.interestRegion
+
+      for(id <- leftMoves) {
+        if(board.thisPieceEndedGame(id, nextIsBlack))
+          return id
+      }
+
+      for(id <- leftMoves) {
+        if(board.thisPieceEndedGame(id, !nextIsBlack))
+          return id
+      }
+
+      // otherwise, play randomly
+      val x = random.nextInt(leftMoves.size)
+      leftMoves(x)
+    }
+
+    def playATurn(posId: Int, playerIsBlack: Boolean, turn: Int): (GameWinner, Int) = {
+      if (verbose) {
+        println(s"turn: $turn, isBlack: $playerIsBlack, pos: ${board.idToPos(posId)}")
+        println(board)
+      }
+      board.placePiece(board.idToPos(posId), playerIsBlack) match {
+        case GameWinner(Empty) =>
+          if (turn >= maxTurn || board.interestRegion.isEmpty)
+            (GameWinner(Empty), turn) // it's a draw
+          else {
+            playATurn(nextPosId(!playerIsBlack), !playerIsBlack, turn + 1)
+          }
+        case winner =>
+          (winner, turn)
       }
     }
-    (blackWins.toDouble / sampleNum, whiteWins.toDouble / sampleNum)
+
+    playATurn(board.posToId(startPos), currentIsBlack, 0)
   }
+
+  // using counters
+  def complexSimulation(board: BoardMut, startPos: Pos, currentIsBlack: Boolean, maxTurn: Int, random: Random,
+                     verbose: Boolean = false):
+  (GameWinner, Int) = {
+
+    def nextPosId(nextIsBlack: Boolean): Int = {
+      val leftMoves = board.interestRegion
+
+      for(id <- leftMoves) {
+        if(board.thisPieceEndedGame(id, nextIsBlack))
+          return id
+      }
+
+      for(id <- leftMoves) {
+        if(board.thisPieceEndedGame(id, !nextIsBlack))
+          return id
+      }
+
+      // otherwise, play randomly
+      val x = random.nextInt(leftMoves.size)
+      leftMoves(x)
+    }
+
+    def playATurn(posId: Int, playerIsBlack: Boolean, turn: Int): (GameWinner, Int) = {
+      if (verbose) {
+        println(s"turn: $turn, isBlack: $playerIsBlack, pos: ${board.idToPos(posId)}")
+        println(board)
+      }
+      board.placePiece(board.idToPos(posId), playerIsBlack) match {
+        case GameWinner(Empty) =>
+          if (turn >= maxTurn || board.interestRegion.isEmpty)
+            (GameWinner(Empty), turn) // it's a draw
+          else {
+            playATurn(nextPosId(!playerIsBlack), !playerIsBlack, turn + 1)
+          }
+        case winner =>
+          (winner, turn)
+      }
+    }
+
+    playATurn(board.posToId(startPos), currentIsBlack, 0)
+  }
+
 }
