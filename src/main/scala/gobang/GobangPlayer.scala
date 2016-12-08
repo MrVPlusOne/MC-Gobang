@@ -3,39 +3,52 @@ package gobang
 import scala.util.Random
 
 /**
-  * Created by weijiayi on 05/12/2016.
+  * Represent a game player, can be AI or human.
   */
 trait GobangPlayer {
   def name: String
   def playsBlack: Boolean
 
-  def decideWhereToMove(boardMut: BoardMut): Pos
+  def makeDecision(boardMut: BoardMut): GobangPlayerDecision
 }
 
-class AIPlayer(val name: String, val playsBlack: Boolean, sampleNum: Int) extends GobangPlayer {
-  val maxTurnCut = 1000
-  case class WinStat(pos: Pos, winRates: (Double, Double)){
-    val (selfWin, oppWin) = if(playsBlack) winRates else (winRates._2, winRates._1)
-    val winFactor = selfWin - oppWin
+sealed trait GobangPlayerDecision
 
-    def winRatesString = "WinRates: %.1f%% vs %.1f%%".format(selfWin*100, oppWin*100)
+object GobangPlayerDecision{
+  case class NextMove(pos: Pos) extends GobangPlayerDecision
+  case object Unroll extends GobangPlayerDecision
+  case object GiveUp extends GobangPlayerDecision
+}
+
+/** Monte Carlo Game AI Player */
+class AIPlayer(val name: String, val playsBlack: Boolean,
+               aiAlgorithm: AIAlgorithm,
+               turnWeight: Int => Double = AIAlgorithm.constantTurnWeight,
+               winFactorF: (Double, Double) => Double = _ - _,
+               sampleNum: Int, seed: Int = 0,
+               simulateOpp: Boolean = true,
+               reportProgress: Boolean = true) extends GobangPlayer {
+  val random = new Random(seed)
+
+  case class WinStat(pos: Pos, winRates: (Double, Double)){
+    def winRateOf(playsBlack: Boolean) = if(playsBlack) winRates._1 else winRates._2
+
+    def winFactor(playsBlack: Boolean) = winFactorF(winRateOf(playsBlack), winRateOf(!playsBlack))
+
+    def winRatesString = "WinRates: %.1f%% vs %.1f%%".format(winRates._1*100, winRates._2*100)
   }
 
   def assessWinRates(board: BoardMut, pos: Pos, currentIsBlack: Boolean):
   (Double, Double) = {
-    def turnWeight(turn: Int): Double = {
-      if(turn == 0) sampleNum
-      else 1.0 / (turn*turn)
-    }
-
+    val offset = random.nextInt
     val results = (0 until sampleNum).par.map{ i =>
-      val (winner, turn) = RandomPlay.semiRandomPlay(board.duplicate, pos, currentIsBlack, maxTurnCut, new Random(i)) //fixme
+      val (winner, turn) = aiAlgorithm.randomSimulateAGame(board.duplicate, pos, currentIsBlack, i + offset)
       winner.winner match {
-        case PosState.Empty =>
+        case PosColor.Empty =>
           (0,turnWeight(turn))
-        case PosState.Black =>
+        case PosColor.Black =>
           (1,turnWeight(turn))
-        case PosState.White =>
+        case PosColor.White =>
           (-1,turnWeight(turn))
       }
     }.toArray
@@ -52,63 +65,112 @@ class AIPlayer(val name: String, val playsBlack: Boolean, sampleNum: Int) extend
     (blackWinScore/total, whiteWinScore/total)
   }
 
-  def decideWhereToMove(board: BoardMut): Pos = {
-    val leftSize = board.interestRegion.size
-    print("." * leftSize)
-    println(s"($leftSize)")
-
-    val reportLock = new Object
-    var finished = 0
-    def report(): Unit = reportLock.synchronized {
-      finished += 1
-      print("-")
+  def chooseBestFrom(board: BoardMut, positions: Seq[Pos], playsBlack: Boolean): WinStat = {
+    val leftSize = positions.size
+    if(reportProgress) {
+      print("." * leftSize)
+      println(s"($leftSize)")
     }
 
-    val stat = board.interestRegion.map(id => {
-      val pos = board.idToPos(id)
+    var finished = 0
+    def report(): Unit = if(reportProgress) {
+      finished += 1
+      print("-")
+      if (finished == leftSize)
+        println()
+    }
+
+    positions.map(pos => {
       val winRates = assessWinRates(board, pos, playsBlack)
       report()
       WinStat(pos, winRates)
-    }).maxBy(_.winFactor)
-
-    println()
-    println(stat.winRatesString)
-    stat.pos
+    }).maxBy(_.winFactor(playsBlack))
   }
 
-  def decideWhereToMoveSilent(board: BoardMut): WinStat = {
-    val stat = board.interestRegion.map(id => {
-      val pos = board.idToPos(id)
-      val winRates = assessWinRates(board, pos, playsBlack)
-      WinStat(pos, winRates)
-    }).maxBy(_.winFactor)
+  def makeDecision(board: BoardMut): GobangPlayerDecision = {
+    def nextMove(pos: Pos) = GobangPlayerDecision.NextMove(pos)
+    def nextMoveUseStat(stat: WinStat) = {
+      println(stat.winRatesString)
+      nextMove(stat.pos)
+    }
 
-    stat
+    // if it's the beginning
+    if(board.interestRegion.isEmpty)
+      return nextMove(Pos(board.size/2, board.size/2))
+
+    val selfSituation = board.gameSituation(playsBlack)
+    val oppSituation = board.gameSituation(!playsBlack)
+
+    // take the victory
+    val victoryPoints: Set[Pos] = selfSituation.victoryPoints
+    if(victoryPoints.nonEmpty)
+      return nextMove(victoryPoints.head)
+
+    // defend victory points
+    if(oppSituation.victoryPoints.nonEmpty)
+      return nextMove(oppSituation.victoryPoints.head)
+
+    // take the victory using leading points
+    if(selfSituation.leadingPoints.nonEmpty)
+      return nextMove(selfSituation.leadingPoints.head)
+
+    // defend leading points
+    if(oppSituation.leadingPoints.nonEmpty){
+      val stat = chooseBestFrom(board, oppSituation.leadingPoints.toSeq, playsBlack)
+      return nextMoveUseStat(stat)
+    }
+
+    // random asses
+    val stat1 = chooseBestFrom(board, board.interestRegion.map(board.idToPos), playsBlack)
+    if(simulateOpp) {
+      if (stat1.winRateOf(playsBlack) > 0.999)
+        nextMoveUseStat(stat1)
+      else {
+        val stat2 = chooseBestFrom(board, board.interestRegion.map(board.idToPos), !playsBlack)
+        if (stat1.winFactor(playsBlack) > stat2.winFactor(!playsBlack)){
+          print("(attack) ")
+          nextMoveUseStat(stat1)
+        }
+        else {
+          print("(defend) ")
+          nextMoveUseStat(stat2)
+        }
+      }
+    }else {
+      nextMoveUseStat(stat1)
+    }
   }
+
 }
 
 
 class CommandlinePlayer(val name: String, val playsBlack: Boolean) extends GobangPlayer{
 
-  def decideWhereToMove(boardMut: BoardMut): Pos = {
-    println("What's your move? (row and column separated by space)")
+  def makeDecision(boardMut: BoardMut): GobangPlayerDecision = {
+    println("What's your move? (row and column separated by space, use 'unroll' to roll back 2 turn)")
 
     try {
-      Console.in.readLine().trim.split("\\s+") match {
+      val input = Console.in.readLine().trim.toLowerCase()
+      if(input == "unroll")
+        return GobangPlayerDecision.Unroll
+      if(input == "give up")
+        return GobangPlayerDecision.GiveUp
+
+      input.split("\\s+") match {
         case Array(rs, cs) =>
           val p = Pos(rs.toInt, cs.toInt)
-          if (boardMut.stateAt(p).contains(PosState.Empty))
-            p
+          if (boardMut.stateAt(p).contains(PosColor.Empty))
+            GobangPlayerDecision.NextMove(p)
           else {
             println("!! Place already occupied.")
-            decideWhereToMove(boardMut)
+            makeDecision(boardMut)
           }
-        case input => throw new Exception(s"Input = '${input.toSeq}'")
+        case other => throw new Exception(s"Input = '${other.toSeq}'")
       }
     } catch {
       case e: Exception =>
         println("!! Input error: " + e)
-        decideWhereToMove(boardMut)
+        makeDecision(boardMut)
     }
   }
 }

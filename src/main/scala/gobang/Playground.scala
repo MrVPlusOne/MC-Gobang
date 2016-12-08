@@ -10,8 +10,7 @@ object Playground {
     val size = 15
 
     val b = BoardMut.emptyBoard(size)
-    val r = RandomPlay.semiRandomPlay(b, Pos(size/2,size/2), currentIsBlack = true, maxTurn = 1000,
-      new Random(3),verbose = false)
+    val r = AIAlgorithm.ConstraintSpace(verbose = true).randomSimulateAGame(b, Pos(size/2,size/2), currentIsBlack = true, simulationId = 1)
     println(s"result: $r")
     println(b)
   }

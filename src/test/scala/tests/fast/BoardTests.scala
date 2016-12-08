@@ -1,6 +1,6 @@
 package tests.fast
 
-import gobang.{BoardMut, Pos, PosState}
+import gobang.{BoardMut, Pos, PosColor}
 import org.scalacheck.{Gen, Prop}
 import tests.MyPropTest
 
@@ -20,22 +20,22 @@ class BoardTests extends MyPropTest{
 
     "return 0" in {
       val prop = Prop.forAll(posGen, dirGen)( (pos, dir) => {
-        board.numberOfSameColorInDirection(pos, dir, PosState.Black, 5) == 0 &&
-          board.numberOfSameColorInDirection(pos, dir, PosState.White, 5) == 0
+        board.numberOfSameColorInDirection(pos, dir, PosColor.Black, 5) == 0 &&
+          board.numberOfSameColorInDirection(pos, dir, PosColor.White, 5) == 0
       })
       checkProp(prop)
     }
 
     "less than maxLen" in {
       val prop = Prop.forAll(posGen, dirGen)( (pos, dir) => {
-        board.numberOfSameColorInDirection(pos, dir, PosState.Empty, 5) <= 5
+        board.numberOfSameColorInDirection(pos, dir, PosColor.Empty, 5) <= 5
       })
       checkProp(prop)
     }
 
     "return right number" in {
-      import PosState._
-      val data = Array[PosState] (
+      import PosColor._
+      val data = Array[PosColor] (
         Black, Empty, Empty, White,
         Black, Black, White, Empty,
         Empty, Empty, White, Empty,
@@ -45,14 +45,14 @@ class BoardTests extends MyPropTest{
       assert(b.numberOfSameColorInDirection(Pos(1,1), (-1,-1), Black, 5) === 1)
       assert(b.numberOfSameColorInDirection(Pos(1,1), ( 1, 1), Black, 5) === 0)
       assert(b.numberOfSameColorInDirection(Pos(0,1), ( 1, 1), White, 5) === 1)
-      assert(b.numberOfSameColorInDirection(Pos(0,3), (-1, 1), White, 5) === 1)
+      assert(b.numberOfSameColorInDirection(Pos(0,3), ( 1,-1), White, 5) === 1)
     }
   }
 
   "thisPieceEndedGame" should {
     "behave correctly" in {
-      import PosState._
-      val data = Array[PosState](
+      import PosColor._
+      val data = Array[PosColor](
         Black, Empty, Empty, White,
         Black, Black, White, Empty,
         Empty, Empty, Black, Empty,
@@ -88,7 +88,7 @@ class BoardTests extends MyPropTest{
           |.  .  .  .  .  .  .  .  .  .  *  .  .  .  .
         """.stripMargin
       )
-      assert(board.thisPieceEndedGame(Pos(4,9), PosState.White))
+      assert(board.thisPieceEndedGame(Pos(4,9), PosColor.White))
     }
   }
 
@@ -96,7 +96,7 @@ class BoardTests extends MyPropTest{
     "paint right number of region" in {
       val board = BoardMut.emptyBoard(7)
       val center = Pos(3,3)
-      board.placePiece(center, playerIsBlack = true)
+      board.placeAPiece(center, playerIsBlack = true)
       assert(board.interestRegion.size === 16)
 
 //      board.placePiece(Pos(3,4), playerIsBlack = false)
@@ -118,9 +118,10 @@ class BoardTests extends MyPropTest{
         """.stripMargin
       )
       val s1 = board.interestRegion.size
-      board.placePiece(Pos(4,3), playerIsBlack = true)
+      board.placeAPiece(Pos(4,3), playerIsBlack = true)
       val s2 = board.interestRegion.size
       assert(s2 === s1 + 4 - 1)
     }
+
   }
 }
